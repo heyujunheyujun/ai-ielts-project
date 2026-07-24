@@ -1,0 +1,43 @@
+# ============================================
+# Stage 1: Build Client (Vue3 + Vite)
+# ============================================
+FROM node:20-alpine AS client-build
+WORKDIR /app/client
+COPY client/package.json client/package-lock.json ./
+RUN npm ci
+COPY client/ ./
+RUN npm run build
+
+# ============================================
+# Stage 2: Build Server (TypeScript)
+# ============================================
+FROM node:20-alpine AS server-build
+WORKDIR /app/server
+COPY server/package.json server/package-lock.json ./
+RUN npm ci
+COPY server/ ./
+RUN npm run build
+
+# ============================================
+# Stage 3: Production Runtime
+# ============================================
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy server production deps
+COPY server/package.json server/package-lock.json ./
+RUN npm ci --omit=dev
+
+# Copy compiled server (includes all routes, data, seed)
+COPY --from=server-build /app/server/dist ./dist
+
+# Copy client dist
+COPY --from=client-build /app/client/dist ./client/dist
+
+EXPOSE 3000
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+CMD ["node", "dist/index.js"]
