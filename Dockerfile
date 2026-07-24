@@ -1,27 +1,27 @@
 # ============================================
 # Stage 1: Build Client (Vue3 + Vite)
 # ============================================
-FROM node:20-alpine AS client-build
+FROM node:24-alpine AS client-build
 WORKDIR /app/client
-COPY client/package.json client/package-lock.json ./
-RUN npm ci
+COPY client/package.json ./
+RUN npm install
 COPY client/ ./
-RUN npm run build
+RUN npx vite build
 
 # ============================================
 # Stage 2: Build Server (TypeScript)
 # ============================================
-FROM node:20-alpine AS server-build
+FROM node:24-alpine AS server-build
 WORKDIR /app/server
-COPY server/package.json server/package-lock.json ./
-RUN npm ci
+COPY server/package.json ./
+RUN npm install
 COPY server/ ./
 RUN npm run build
 
 # ============================================
 # Stage 3: Production Runtime
 # ============================================
-FROM node:20-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 
