@@ -26,8 +26,8 @@ FROM node:24-alpine
 WORKDIR /app
 
 # Copy server production deps
-COPY server/package.json server/package-lock.json ./
-RUN npm ci --omit=dev
+COPY server/package.json ./
+RUN npm install --omit=dev
 
 # Copy compiled server (includes all routes, data, seed)
 COPY --from=server-build /app/server/dist ./dist
