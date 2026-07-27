@@ -35,9 +35,9 @@ COPY --from=server-build /app/server/dist ./dist
 # Copy client dist
 COPY --from=client-build /app/client/dist ./client/dist
 
-EXPOSE 3000
+EXPOSE 5000
 
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=5000
 
 CMD ["node", "dist/index.js"]
