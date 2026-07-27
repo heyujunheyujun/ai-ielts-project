@@ -3,8 +3,12 @@
 # ============================================
 FROM node:24-alpine AS client-build
 WORKDIR /app/client
+
+# 复制依赖文件并安装
 COPY client/package.json ./
-RUN npm install
+RUN npm install --no-audit --no-fund && npm cache clean --force
+
+# 复制源码并构建
 COPY client/ ./
 RUN npx vite build
 
@@ -13,8 +17,12 @@ RUN npx vite build
 # ============================================
 FROM node:24-alpine AS server-build
 WORKDIR /app/server
+
+# 复制依赖文件并安装
 COPY server/package.json ./
 RUN npm install
+
+# 复制源码并构建
 COPY server/ ./
 RUN npm run build
 
@@ -25,14 +33,12 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Copy server production deps
+# 安装生产依赖
 COPY server/package.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 
-# Copy compiled server (includes all routes, data, seed)
+# 复制构建产物
 COPY --from=server-build /app/server/dist ./dist
-
-# Copy client dist
 COPY --from=client-build /app/client/dist ./client/dist
 
 EXPOSE 5000
