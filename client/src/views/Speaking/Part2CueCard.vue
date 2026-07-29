@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { getQuestions, getSpeakingFeedback } from '@/api'
 import type { Question, SpeakingFeedback } from '@/types'
 import { showToast } from 'vant'
+import { getSupportedAudioMimeType, getRecordingErrorMessage } from '@/utils/audio'
 
 const MIN_TRANSCRIPT_CHARS = 15
 
@@ -61,17 +62,29 @@ async function startSpeaking() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     audioChunks = []
-    mediaRecorder = new MediaRecorder(stream)
+    const mimeType = getSupportedAudioMimeType()
+    const recorderOptions: MediaRecorderOptions = {}
+    if (mimeType) {
+      recorderOptions.mimeType = mimeType
+    }
+    mediaRecorder = new MediaRecorder(stream, recorderOptions)
     mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) audioChunks.push(e.data)
     }
     mediaRecorder.onstop = () => {
       stream.getTracks().forEach(t => t.stop())
-      const blob = new Blob(audioChunks, { type: 'audio/webm' })
+      const actualType = mediaRecorder?.mimeType || mimeType || 'audio/webm'
+      const blob = new Blob(audioChunks, { type: actualType })
       recordedAudioUrl.value = URL.createObjectURL(blob)
     }
+    mediaRecorder.onerror = () => {
+      stream.getTracks().forEach(t => t.stop())
+      showToast('Recording failed. Please try again.')
+    }
     mediaRecorder.start()
-  } catch {
+  } catch (err: any) {
+    console.error('Recording error:', err)
+    showToast(getRecordingErrorMessage(err))
     micAvailable.value = false
   }
   timer = setInterval(() => {
