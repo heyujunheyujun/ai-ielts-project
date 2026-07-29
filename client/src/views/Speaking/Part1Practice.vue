@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { getQuestions, getSpeakingFeedback } from '@/api'
+import { getQuestions, getSpeakingFeedback, getSpeechFeedback } from '@/api'
 import type { Question, SpeakingFeedback } from '@/types'
 import { showToast } from 'vant'
 import { getSupportedAudioMimeType, getRecordingErrorMessage } from '@/utils/audio'
+import { isSpeechRecognitionSupported, startSpeechRecognition, stopSpeechRecognition, abortSpeechRecognition } from '@/utils/speechRecognition'
 
 const MIN_TRANSCRIPT_CHARS = 15
 
@@ -16,9 +17,14 @@ const recordedAudioUrl = ref<string | null>(null)
 const micAvailable = ref(true)
 const textAnswer = ref('')
 const aiLoading = ref(false)
+const voiceLoading = ref(false)
 const aiFeedback = ref<SpeakingFeedback | null>(null)
+const speechSupported = ref(false)
+const recognizing = ref(false)
 let mediaRecorder: MediaRecorder | null = null
 let audioChunks: Blob[] = []
+let currentAudioBlob: Blob | null = null
+let accumulatedTranscript = ''
 
 const hasMultiple = computed(() => questions.value.length > 1)
 
@@ -35,9 +41,13 @@ onMounted(async () => {
   } catch {
     micAvailable.value = false
   }
+  speechSupported.value = isSpeechRecognitionSupported()
 })
 
 function prevQuestion() {
+  abortSpeechRecognition()
+  recognizing.value = false
+  accumulatedTranscript = ''
   if (questions.value.length > 1) {
     if (recordedAudioUrl.value) {
       URL.revokeObjectURL(recordedAudioUrl.value)
@@ -51,6 +61,9 @@ function prevQuestion() {
 }
 
 function nextQuestion() {
+  abortSpeechRecognition()
+  recognizing.value = false
+  accumulatedTranscript = ''
   if (questions.value.length > 1) {
     if (recordedAudioUrl.value) {
       URL.revokeObjectURL(recordedAudioUrl.value)
@@ -88,9 +101,32 @@ async function evaluateAnswer() {
   }
 }
 
+async function evaluateVoice() {
+  if (!currentAudioBlob || !questions.value[currentIndex.value]) return
+  voiceLoading.value = true
+  aiFeedback.value = null
+  try {
+    const q = questions.value[currentIndex.value]
+    const topic = q.questionType + ': ' + q.questions.map(s => s.stem).join('; ')
+    const result = await getSpeechFeedback(currentAudioBlob, topic, 1)
+    if (result) {
+      textAnswer.value = result.transcript
+      aiFeedback.value = result
+    }
+  } catch (err: any) {
+    const msg = err?.response?.data?.error || err?.message || '语音评价失败，请重试。'
+    showToast(msg)
+  } finally {
+    voiceLoading.value = false
+  }
+}
+
 async function toggleRecording() {
   if (isRecording.value) {
     mediaRecorder?.stop()
+    stopSpeechRecognition()
+    recognizing.value = false
+    textAnswer.value = accumulatedTranscript
     return
   }
   if (recordedAudioUrl.value) {
@@ -113,6 +149,7 @@ async function toggleRecording() {
       stream.getTracks().forEach(t => t.stop())
       const actualType = mediaRecorder?.mimeType || mimeType || 'audio/webm'
       const blob = new Blob(audioChunks, { type: actualType })
+      currentAudioBlob = blob
       recordedAudioUrl.value = URL.createObjectURL(blob)
       isRecording.value = false
     }
@@ -123,10 +160,30 @@ async function toggleRecording() {
     }
     mediaRecorder.start()
     isRecording.value = true
+
+    // Start speech recognition alongside recording
+    if (speechSupported.value) {
+      accumulatedTranscript = ''
+      textAnswer.value = ''
+      recognizing.value = true
+      startSpeechRecognition({
+        onResult: (final, interim) => {
+          accumulatedTranscript = final
+          textAnswer.value = final + (interim ? ' ' + interim : '')
+        },
+        onError: (msg) => {
+          console.warn('Speech recognition:', msg)
+        },
+        onEnd: () => {
+          recognizing.value = false
+        }
+      })
+    }
   } catch (err: any) {
     console.error('Recording error:', err)
     showToast(getRecordingErrorMessage(err))
     isRecording.value = false
+    recognizing.value = false
   }
 }
 </script>
@@ -167,7 +224,15 @@ async function toggleRecording() {
               {{ isRecording ? 'Stop' : recordedAudioUrl ? 'Re-record' : 'Record' }}
             </van-button>
             <p class="recording-hint">
-              {{ isRecording ? '🔴 Recording...' : recordedAudioUrl ? 'Recording saved ✓' : 'Tap to record' }}
+              <template v-if="isRecording">
+                🔴 Recording{{ recognizing ? ' + Transcribing...' : '...' }}
+              </template>
+              <template v-else-if="recordedAudioUrl">
+                Recording saved ✓
+              </template>
+              <template v-else>
+                Tap to record
+              </template>
             </p>
           </div>
 
@@ -175,16 +240,41 @@ async function toggleRecording() {
           <div v-if="recordedAudioUrl && !isRecording" class="playback-area">
             <p class="playback-label">🔊 Your Recording</p>
             <audio :src="recordedAudioUrl" controls style="width:100%"></audio>
+            <van-button
+              v-if="!speechSupported"
+              type="success"
+              block
+              :loading="voiceLoading"
+              class="voice-eval-btn"
+              @click="evaluateVoice"
+            >
+              🎙️ AI Voice Evaluate
+            </van-button>
+            <p v-if="!speechSupported" class="voice-hint">将录音发送给 AI，自动转写并评价</p>
+            <p v-else class="voice-hint">转写已自动完成，可在下方编辑后评价</p>
           </div>
 
           <!-- Text Answer Area -->
           <div class="text-answer-area">
-            <p class="text-hint">{{ micAvailable ? 'Type what you said (or plan to say):' : '🎤 Mic not available — type your answer:' }}</p>
+            <p class="text-hint">
+              <template v-if="speechSupported && isRecording">
+                🎙️ 实时转写中，请说英文...
+              </template>
+              <template v-else-if="speechSupported && textAnswer">
+                ✅ 转写完成，可编辑后评价
+              </template>
+              <template v-else-if="micAvailable">
+                Type what you said (or plan to say):
+              </template>
+              <template v-else>
+                🎤 Mic not available — type your answer:
+              </template>
+            </p>
             <van-field
               v-model="textAnswer"
               type="textarea"
               rows="4"
-              placeholder="Type your spoken answer here..."
+              :placeholder="recognizing ? '转写中...' : 'Type your spoken answer here...'"
               autosize
             />
           </div>
@@ -253,6 +343,8 @@ async function toggleRecording() {
 .recording-hint { margin-top: 12px; font-size: 13px; color: #999; }
 .playback-area { margin-bottom: 16px; padding: 12px; background: #e8f5e9; border-radius: 8px; border: 1px solid #4caf50; }
 .playback-label { font-size: 13px; font-weight: 600; color: #2e7d32; margin-bottom: 6px; }
+.voice-eval-btn { margin-top: 10px; }
+.voice-hint { font-size: 12px; color: #999; text-align: center; margin-top: 6px; }
 .text-answer-area { margin-bottom: 16px; }
 .text-hint { font-size: 13px; color: #ff9800; margin-bottom: 8px; }
 

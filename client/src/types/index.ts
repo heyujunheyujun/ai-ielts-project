@@ -80,6 +80,10 @@ export interface SpeakingFeedback {
   correctedVersion?: string
 }
 
+export interface SpeechFeedbackResult extends SpeakingFeedback {
+  transcript: string
+}
+
 // ========== API Response Wrapper ==========
 
 export interface ApiResponse<T> {

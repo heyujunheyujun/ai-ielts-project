@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { ApiResponse, Question, TestPaper, WritingFeedback, SpeakingFeedback } from '@/types'
+import type { ApiResponse, Question, TestPaper, WritingFeedback, SpeakingFeedback, SpeechFeedbackResult } from '@/types'
 
 const http = axios.create({
   baseURL: '/api',
@@ -53,6 +53,22 @@ export async function getSpeakingFeedback(
     topic,
     transcript,
     part
+  })
+  return res.data.data || null
+}
+
+export async function getSpeechFeedback(
+  audioBlob: Blob,
+  topic: string,
+  part: number
+): Promise<SpeechFeedbackResult | null> {
+  const formData = new FormData()
+  formData.append('audio', audioBlob, 'recording.webm')
+  formData.append('topic', topic)
+  formData.append('part', String(part))
+  const res = await http.post<ApiResponse<SpeechFeedbackResult>>('/ai/speech-feedback', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000 // 2 min timeout: upload + transcription + evaluation
   })
   return res.data.data || null
 }
