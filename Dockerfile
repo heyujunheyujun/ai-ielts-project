@@ -38,7 +38,7 @@ COPY server/package.json ./
 RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 
 # 复制构建产物
-COPY --from=server-build /app/server/dist ./dist
+COPY --from=server-build /app/server/dist ./server/dist
 COPY --from=client-build /app/client/dist ./client/dist
 
 EXPOSE 5000
@@ -46,4 +46,4 @@ EXPOSE 5000
 ENV NODE_ENV=production
 ENV PORT=5000
 
-CMD ["node", "dist/index.js"]
+CMD ["node", "server/dist/index.js"]
