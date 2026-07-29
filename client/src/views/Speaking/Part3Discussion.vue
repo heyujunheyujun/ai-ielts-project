@@ -2,6 +2,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { getQuestions, getSpeakingFeedback } from '@/api'
 import type { Question, SpeakingFeedback } from '@/types'
+import { showToast } from 'vant'
+
+const MIN_TRANSCRIPT_CHARS = 15
 
 const questions = ref<Question[]>([])
 const currentIndex = ref(0)
@@ -61,13 +64,27 @@ function nextQuestion() {
 
 async function evaluateAnswer() {
   if (!textAnswer.value.trim() || !questions.value[currentIndex.value]) return
+  if (textAnswer.value.trim().length < MIN_TRANSCRIPT_CHARS) {
+    showToast(`Please enter at least ${MIN_TRANSCRIPT_CHARS} characters of your spoken answer before evaluating.`)
+    return
+  }
+  if (!/[a-zA-Z]/.test(textAnswer.value)) {
+    showToast('Please enter actual English words (not just numbers or symbols).')
+    return
+  }
   aiLoading.value = true
   aiFeedback.value = null
-  const q = questions.value[currentIndex.value]
-  const topic = q.questionType + ': ' + q.questions.map(s => s.stem).join('; ')
-  const result = await getSpeakingFeedback(topic, textAnswer.value, 3)
-  aiFeedback.value = result
-  aiLoading.value = false
+  try {
+    const q = questions.value[currentIndex.value]
+    const topic = q.questionType + ': ' + q.questions.map(s => s.stem).join('; ')
+    const result = await getSpeakingFeedback(topic, textAnswer.value, 3)
+    aiFeedback.value = result
+  } catch (err: any) {
+    const msg = err?.response?.data?.error || err?.message || 'Evaluation failed, please try again.'
+    showToast(msg)
+  } finally {
+    aiLoading.value = false
+  }
 }
 
 async function toggleRecording() {
@@ -160,7 +177,7 @@ async function toggleRecording() {
               type="warning"
               block
               :loading="aiLoading"
-              :disabled="!textAnswer.trim()"
+              :disabled="!textAnswer.trim() || textAnswer.trim().length < MIN_TRANSCRIPT_CHARS"
               @click="evaluateAnswer"
             >
               🤖 AI Evaluate

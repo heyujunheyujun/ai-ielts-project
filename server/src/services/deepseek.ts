@@ -30,7 +30,7 @@ async function chat(messages: Array<{ role: string; content: string }>): Promise
     body: JSON.stringify({
       model: DEEPSEEK_MODEL,
       messages,
-      temperature: 0.7,
+      temperature: 0.2,
       max_tokens: 2048
     })
   })
@@ -107,7 +107,10 @@ export async function getSpeakingFeedback(
 }> {
   const systemPrompt = `你是一名雅思口语考官。请根据以下口语Part ${part}的转写文本，按雅思口语四项评分标准用中文给出反馈。
 
-返回严格的JSON格式：
+IMPORTANT: You MUST evaluate ONLY the actual transcript provided by the student. Do NOT fabricate, imagine, or fill in missing content. If the transcript is too short (less than ~15 characters), nonsensical, or does not contain a meaningful English spoken answer, you MUST return the following error JSON instead of an evaluation:
+{ "error": "输入内容不足或无效，无法进行评价。请提供完整的口语回答文本。" }
+
+Otherwise, if the transcript is valid, return the evaluation in this exact JSON format:
 {
   "fluency": "流利度与连贯性评价（中文）",
   "vocabulary": "词汇资源评价（中文）",
@@ -126,7 +129,11 @@ export async function getSpeakingFeedback(
     ])
     const jsonMatch = result.match(/\{[\s\S]*\}/)
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0])
+      const parsed = JSON.parse(jsonMatch[0])
+      if (parsed.error) {
+        throw new Error(parsed.error)
+      }
+      return parsed
     }
     throw new Error('Failed to parse AI response')
   } catch (err: any) {
